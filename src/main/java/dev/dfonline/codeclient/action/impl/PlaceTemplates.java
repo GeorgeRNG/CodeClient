@@ -40,6 +40,11 @@ public class PlaceTemplates extends Action {
     private GoTo goTo = null;
     private boolean shouldBeSwapping = false;
 
+    public PlaceTemplates(ArrayList<Operation> operations, Callback callback) {
+        super(callback);
+        this.operations = operations;
+    }
+
     public PlaceTemplates(List<ItemStack> templates, Callback callback) {
         super(callback);
         if (CodeClient.location instanceof Dev plot) {
@@ -89,11 +94,11 @@ public class PlaceTemplates extends Action {
                     TemplateBlock.Block blockName = TemplateBlock.Block.valueOf(block.block.toUpperCase());
                     String name = ObjectUtils.firstNonNull(block.action, block.data);
                     for (Map.Entry<BlockPos, SignText> sign : scan.entrySet()) { // Loop through scanned signs
-                        SignText text = sign.getValue();                        // ↓ If the blockName and name match
+                        SignText text = sign.getValue();                         // ↓ If the blockName and name match
                         if (text.getMessage(0, false).getString().equals(blockName.name) && text.getMessage(1, false).getString().equals(name)) {
-                            map.put(sign.getKey().east(), item);                // Put it into map
-                            leftOvers.remove(item);                             // Remove the template, so we can see if there's anything left over
-                            break;                                              // break out :D
+                            map.put(sign.getKey().east(), item);                 // Put it into map
+                            leftOvers.remove(item);                              // Remove the template, so we can see if there's anything left over
+                            break;                                               // break out :D
                         }
                     }
                 } catch (Exception e) {
@@ -161,6 +166,27 @@ public class PlaceTemplates extends Action {
         return null;
     }
 
+    public static PlaceTemplates breakTemplates(List<String> names, Callback callback) {
+        if(CodeClient.location instanceof Dev dev) { // TODO: make this passed in as a parameter
+            var targets = new ArrayList<Operation>();
+            HashMap<BlockPos, SignText> scan = dev.scanForSigns(Pattern.compile(".*"));
+            for (var entry: scan.entrySet()) {
+                var sign = entry.getValue();
+                for (var name : names) {
+                    var type = name.split(" ")[0];
+                    var action = name.substring(type.length() + 1);
+                    if (type.equals("any") || sign.getMessage(0, false).getString().toLowerCase().contains(type.toLowerCase())) {
+                        if (action.equals(sign.getMessage(1, false).getString())) {
+                            targets.add(new DestroyOperation(entry.getKey()));
+                        }
+                    }
+                }
+            }
+            return new PlaceTemplates(targets,callback);
+        }
+        return null;
+    }
+
     /**
      * If there is a template in the way, replace it.
      */
@@ -193,7 +219,7 @@ public class PlaceTemplates extends Action {
                         block.state = blockState;
                     }
                 });
-                if (operation instanceof TemplateToPlace) {
+                if (operation instanceof TemplateToPlace || operation instanceof DestroyOperation) {
                     if (!block.isTemplate) continue;
                     operation.setComplete();
                 }
@@ -237,6 +263,16 @@ public class PlaceTemplates extends Action {
                             ((ClientPlayerInteractionManagerAccessor) (CodeClient.MC.interactionManager)).invokeSequencedPacket(CodeClient.MC.world, sequence -> new PlayerInteractBlockC2SPacket(Hand.MAIN_HAND, blockHitResult, sequence));
                             template.setOpen(false);
                         }
+                        if (operation instanceof DestroyOperation destroy) {
+                            var player = CodeClient.MC.player;
+                            boolean sneaky = !player.isSneaking();
+                            if (sneaky)
+                                net.sendPacket(new ClientCommandC2SPacket(player, ClientCommandC2SPacket.Mode.PRESS_SHIFT_KEY));
+                            net.sendPacket(new PlayerActionC2SPacket(PlayerActionC2SPacket.Action.START_DESTROY_BLOCK, destroy.pos, Direction.UP));
+                            net.sendPacket(new PlayerActionC2SPacket(PlayerActionC2SPacket.Action.ABORT_DESTROY_BLOCK, destroy.pos, Direction.UP));
+                            if (sneaky)
+                                net.sendPacket(new ClientCommandC2SPacket(player, ClientCommandC2SPacket.Mode.RELEASE_SHIFT_KEY));
+                        }
                     }
                     return;
                 }
@@ -256,7 +292,7 @@ public class PlaceTemplates extends Action {
         }
     }
 
-    private static abstract class Operation {
+    public static abstract class Operation {
         protected final BlockPos pos;
         /**
          * If this operation can be acted on, and needs to be completed.
@@ -311,6 +347,12 @@ public class PlaceTemplates extends Action {
         public TemplateToPlace(BlockPos pos, ItemStack template) {
             super(pos);
             this.template = template;
+        }
+    }
+
+    private static class DestroyOperation extends Operation {
+        public DestroyOperation(BlockPos pos) {
+            super(pos);
         }
     }
 }

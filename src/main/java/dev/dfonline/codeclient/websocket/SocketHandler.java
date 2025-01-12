@@ -110,6 +110,7 @@ public class SocketHandler {
             case "size" -> assertScopeLevel(new Size());
             case "scan" -> assertScopeLevel(new Scan());
             case "place" -> assertScopeLevel(new Place());
+            case "break" -> assertScopeLevel(new Break());
             case "inv" -> assertScopeLevel(new SendInventory());
             case "setinv" -> assertScopeLevel(new SetInventory(content));
             case "give" -> assertScopeLevel(new Give(content));
@@ -460,6 +461,40 @@ public class SocketHandler {
 
         private interface CreatePlacer {
             PlaceTemplates run(ArrayList<ItemStack> templates, Callback next, WebSocket responder);
+        }
+    }
+
+    private class Break extends SocketHandler.Action {
+        private final ArrayList<String> targets = new ArrayList<>();
+        public boolean ready = false;
+
+        Break(){
+            super("break", AuthScope.WRITE_CODE);
+        }
+
+        @Override
+        public void set(WebSocket responder) {
+        }
+
+        @Override
+        public void start(WebSocket responder) {
+            if (!ready) return;
+            PlaceTemplates breaker = PlaceTemplates.breakTemplates(targets, SocketHandler.this::next);
+            if(breaker == null) return;
+            CodeClient.currentAction = breaker;
+            breaker.init();
+        }
+
+        @Override
+        public void message(WebSocket responder, String message) {
+            if(message.isEmpty() && !targets.isEmpty()) {
+                ready = true;
+                if (Objects.equals(actionQueue.getFirst(), this)) {
+                    this.start(responder);
+                }
+            } else {
+                targets.add(message);
+            }
         }
     }
 
